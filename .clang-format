@@ -1,0 +1,11 @@
+# See: https://www.reddit.com/r/neovim/comments/12ndqo5/lspvimbufformat_parameters_make_tab_indent_4/
+# Also: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+
+BasedOnStyle: LLVM
+IndentWidth: 4
+PointerAlignment: Right # https://www.reddit.com/r/C_Programming/comments/19331y2/right_aligned_pointers/
+ColumnLimit: 80
+
+# https://www.reddit.com/r/C_Programming/comments/yjvkus/why_put_function_names_on_a_new_line/
+# https://clang.llvm.org/docs/ClangFormatStyleOptions.html#alwaysbreakafterdefinitionreturntype
+AlwaysBreakAfterDefinitionReturnType: true
