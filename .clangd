@@ -1,5 +1,6 @@
 # https://clangd.llvm.org/config#files
 # https://clangd.llvm.org/installation
+# https://clang.llvm.org/docs/ClangCommandLineReference.html#cmdoption-clang-x-language
 CompileFlags:                     
   Add: [-xc, -std=c11, -Wall ,-Wextra ,--target=riscv32 ,-ffreestanding ,-nostdlib]
   Remove: []                  
