@@ -2,6 +2,55 @@
 
 void putchar(char ch);
 
+void *
+memcpy(void *dst, const void *src, size_t n) {
+    // copy byte by byte
+    uint8_t *d = dst;
+    const uint8_t *s = src;
+    while (n--) {
+        *d++ = *s++;
+    }
+    return dst;
+}
+
+void *
+memset(void *buf, char c, size_t n) {
+    uint8_t *p = (uint8_t *)buf;
+    while (n--) {
+        *p++ = c;
+    }
+    return buf;
+}
+
+// The strcpy function continues copying even if src is longer than the memory
+// area of dst. This can easily lead to bugs and vulnerabilities, so it's
+// generally recommended to use alternative functions instead of strcpy.
+// TODO: implementing and using an alternative function (strcpy_s) instead.
+char *
+strcpy(char *dst, const char *src) {
+    char *d = dst;
+    // stop if *src != '\0'
+    while (*src) {
+        *d++ = *src++;
+    }
+    *d = '\0';
+    return dst;
+}
+
+int
+strcmp(const char *s1, const char *s2) {
+    while (*s1 && *s2) {
+        if (*s1 != *s2) {
+            break;
+        }
+        s1++, s2++;
+    }
+    // The casting to unsigned char * when comparing is done to conform to the
+    // POSIX specification. See:
+    // https://www.man7.org/linux/man-pages/man3/strcmp.3.html#:~:text=both%20interpreted%20as%20type%20unsigned%20char
+    return *(unsigned char *)s1 - *(unsigned char *)s2;
+}
+
 void
 printf(const char *fmt, ...) {
     // Variable Argument Lists
