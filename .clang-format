@@ -10,3 +10,5 @@ ColumnLimit: 80
 # https://clang.llvm.org/docs/ClangFormatStyleOptions.html#alwaysbreakafterdefinitionreturntype
 AlwaysBreakAfterDefinitionReturnType: true
 AlignConsecutiveMacros: true
+AlignAfterOpenBracket: BlockIndent
+
