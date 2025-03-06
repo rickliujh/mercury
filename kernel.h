@@ -59,3 +59,15 @@ struct trap_frame {
         uint32_t __tmp = (value);                                              \
         __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                \
     } while (0)
+
+#define PROCS_MAX 8 // Maximum number of processes
+
+#define PROC_UNUSED   0 // PCB State, unused process control block/structure
+#define PROC_RUNNABLE 1 // PCB State, runnable process
+
+struct process {
+    int pid;             // Process ID
+    int state;           // Process State, PROC_UNUSED or PROC_RUNNABLE
+    vaddr_t sp;          // Stack pointer of this process
+    uint8_t stack[8192]; // Kernel stack
+};

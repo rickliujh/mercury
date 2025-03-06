@@ -34,21 +34,16 @@ putchar(char ch) {
     sbi_call(ch, 0, 0, 0, 0, 0, 0, 1 /* Console Putchar*/);
 }
 
-__attribute__((section(".text.boot"))) __attribute__((naked)) void
-boot(void) {
-    // see:
-    // https://dmalcolm.fedorapeople.org/gcc/2015-08-31/rst-experiment/how-to-use-inline-assembly-language-in-c-code.html#extended-asm-assembler-instructions-with-c-expression-operands
-    __asm__ __volatile__("mv sp, %[stack_top]\n" // set stack point
-                         "j kernel_main\n"       // jump to kernel main function
-                         :
-                         : [stack_top] "r"(__stack_top
-                         ) // pass the stack top address as %[stack_top]
-    );
-}
-
+// kernel exception handler entry that is used to preserves program state before
+// the trap and restore it after the trap handled by storing registers to stack
+// and restoring it afterwards
 __attribute__((naked)) __attribute__((aligned(4))) void
 kernel_entry(void) {
     __asm__ __volatile__(
+        // sscratch is a RISC-V Control and Status Register (CSR) available in
+        // Supervisor mode (S-mode). It’s a scratch register meant to hold a
+        // temporary value that the supervisor (kernel) can use during exception
+        // handling.
         "csrw sscratch, sp\n"
         "addi sp, sp, -4 * 31\n"
         "sw ra,  4 * 0(sp)\n"
@@ -158,6 +153,127 @@ alloc_pages(uint32_t n) {
     return paddr;
 }
 
+__attribute__((naked)) void
+switch_context(uint32_t *prev_sp, uint32_t *next_sp) {
+    __asm__ __volatile__(
+        // save calle-saved registers onto the current process's stack.
+        "addi sp, sp, -13 * 4\n"
+        // Save callee-saved registers only
+        // "ra" register stores the address of the instruction that should be
+        // executed after a function returns
+        "sw ra,  0  * 4(sp)\n"
+        "sw s0,  1  * 4(sp)\n"
+        "sw s1,  2  * 4(sp)\n"
+        "sw s2,  3  * 4(sp)\n"
+        "sw s3,  4  * 4(sp)\n"
+        "sw s4,  5  * 4(sp)\n"
+        "sw s5,  6  * 4(sp)\n"
+        "sw s6,  7  * 4(sp)\n"
+        "sw s7,  8  * 4(sp)\n"
+        "sw s8,  9  * 4(sp)\n"
+        "sw s9,  10 * 4(sp)\n"
+        "sw s10, 11 * 4(sp)\n"
+        "sw s11, 12 * 4(sp)\n"
+
+        // Switch the stack pointer
+        "sw sp, (a0)\n" // store the value of the stack pointer register sp into
+                        // the memory location pointed to by register a0
+        "lw sp, (a1)\n" // load a 32bit value from the memory location pointed
+                        // to by register a1 into sp
+
+        // Restore callee-saved registers from the next process's stack.
+        "lw ra,  0  * 4(sp)\n" // Restore callee-saved registers only
+        "lw s0,  1  * 4(sp)\n"
+        "lw s1,  2  * 4(sp)\n"
+        "lw s2,  3  * 4(sp)\n"
+        "lw s3,  4  * 4(sp)\n"
+        "lw s4,  5  * 4(sp)\n"
+        "lw s5,  6  * 4(sp)\n"
+        "lw s6,  7  * 4(sp)\n"
+        "lw s7,  8  * 4(sp)\n"
+        "lw s8,  9  * 4(sp)\n"
+        "lw s9,  10 * 4(sp)\n"
+        "lw s10, 11 * 4(sp)\n"
+        "lw s11, 12 * 4(sp)\n"
+        "addi sp, sp, 13 * 4\n" // We've popped 13 4-byte registers from the
+                                // stack
+        "ret\n"
+    );
+}
+
+struct process procs[PROCS_MAX]; // All process control structures
+
+struct process *
+create_process(uint32_t pc) {
+    struct process *proc = NULL;
+
+    int i;
+    for (i = 0; i < PROCS_MAX; i++) {
+        if (procs[i].state == PROC_UNUSED) {
+            proc = &procs[i];
+            break;
+        }
+    }
+
+    if (!proc) {
+        PANIC("no free process slots");
+    }
+
+    uint32_t *sp = (uint32_t *)&proc->stack[sizeof(proc->stack)];
+    *--sp = 0;            // s11
+    *--sp = 0;            // s10
+    *--sp = 0;            // s9
+    *--sp = 0;            // s8
+    *--sp = 0;            // s7
+    *--sp = 0;            // s6
+    *--sp = 0;            // s5
+    *--sp = 0;            // s4
+    *--sp = 0;            // s3
+    *--sp = 0;            // s2
+    *--sp = 0;            // s1
+    *--sp = 0;            // s0
+    *--sp = (uint32_t)pc; // ra // ???
+
+    proc->pid = i + 1;
+    proc->state = PROC_RUNNABLE;
+    proc->sp = (uint32_t)sp; // ???
+    return proc;
+}
+
+void
+delay(void) {
+    for (int i = 0; i < 30000000; i++) {
+        __asm__ __volatile__("nop"); // do nothing instruction in RISC-V
+    }
+}
+
+struct process *proc_a;
+struct process *proc_b;
+
+void
+proc_a_entry(void) {
+    printf("strating process A\n");
+    while (1) {
+        putchar('A');
+        switch_context(
+            &proc_a->sp, &proc_b->sp
+        ); // why it has to be pointer to sp?
+        delay();
+    }
+}
+
+void
+proc_b_entry(void) {
+    printf("strating process B\n");
+    while (1) {
+        putchar('B');
+        switch_context(
+            &proc_b->sp, &proc_a->sp
+        ); // why it has to be pointer to sp?
+        delay();
+    }
+}
+
 void
 kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
@@ -169,9 +285,27 @@ kernel_main(void) {
     printf("alloc_pages test: paddr0=%x\n", paddr0);
     printf("alloc_pages test: paddr1=%x\n", paddr1);
 
+    proc_a = create_process((uint32_t)proc_a_entry);
+    proc_b = create_process((uint32_t)proc_b_entry);
+    proc_a_entry();
+
+    PANIC("unreachable here!");
+
     __asm__ __volatile__("unimp");
 
     for (;;) {
         __asm__ __volatile__("wfi");
     }
+}
+
+__attribute__((section(".text.boot"))) __attribute__((naked)) void
+boot(void) {
+    // see:
+    // https://dmalcolm.fedorapeople.org/gcc/2015-08-31/rst-experiment/how-to-use-inline-assembly-language-in-c-code.html#extended-asm-assembler-instructions-with-c-expression-operands
+    __asm__ __volatile__("mv sp, %[stack_top]\n" // set stack point
+                         "j kernel_main\n"       // jump to kernel main function
+                         :
+                         : [stack_top] "r"(__stack_top
+                         ) // pass the stack top address as %[stack_top]
+    );
 }
