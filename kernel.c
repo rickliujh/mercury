@@ -305,9 +305,11 @@ kernel_main(void) {
 
     idle_proc = create_process((uint32_t)NULL);
     idle_proc->pid = 0;
+    current_proc = idle_proc;
+
     proc_a = create_process((uint32_t)proc_a_entry);
     proc_b = create_process((uint32_t)proc_b_entry);
-    proc_a_entry();
+
     yield();
 
     // PANIC: kernel.c:133: unexpected trap scause=00000005, stval=00000000, sepc=8020028a
