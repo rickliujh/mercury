@@ -247,6 +247,28 @@ delay(void) {
     }
 }
 
+struct process *current_proc;
+struct process *idle_proc;
+
+void
+yield(void) {
+    struct process *next = idle_proc;
+    for (int i = 1; i < PROCS_MAX; i++) {
+        struct process *proc = &procs[(current_proc->pid + i) % PROCS_MAX];
+        if (proc->state == PROC_RUNNABLE && proc->pid > 0) {
+            next = proc;
+            break;
+        }
+    }
+
+    if (next == current_proc)
+        return;
+
+    struct process *prev = current_proc;
+    current_proc = next;
+    switch_context(&prev->sp, &next->sp);
+}
+
 struct process *proc_a;
 struct process *proc_b;
 
@@ -255,9 +277,7 @@ proc_a_entry(void) {
     printf("strating process A\n");
     while (1) {
         putchar('A');
-        switch_context(
-            &proc_a->sp, &proc_b->sp
-        ); // why it has to be pointer to sp?
+        yield();
         delay();
     }
 }
@@ -267,9 +287,7 @@ proc_b_entry(void) {
     printf("strating process B\n");
     while (1) {
         putchar('B');
-        switch_context(
-            &proc_b->sp, &proc_a->sp
-        ); // why it has to be pointer to sp?
+        yield();
         delay();
     }
 }
@@ -285,9 +303,14 @@ kernel_main(void) {
     printf("alloc_pages test: paddr0=%x\n", paddr0);
     printf("alloc_pages test: paddr1=%x\n", paddr1);
 
+    idle_proc = create_process((uint32_t)NULL);
+    idle_proc->pid = 0;
     proc_a = create_process((uint32_t)proc_a_entry);
     proc_b = create_process((uint32_t)proc_b_entry);
     proc_a_entry();
+    yield();
+
+    // PANIC: kernel.c:133: unexpected trap scause=00000005, stval=00000000, sepc=8020028a
 
     PANIC("unreachable here!");
 
