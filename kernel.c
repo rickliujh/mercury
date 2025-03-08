@@ -175,6 +175,10 @@ switch_context(uint32_t *prev_sp, uint32_t *next_sp) {
         "sw s10, 11 * 4(sp)\n"
         "sw s11, 12 * 4(sp)\n"
 
+        // In RISC-V assembly:
+        // lw rd, offset(rs) (e.g., lw sp, (a1)):
+        // Load Word: Loads a 32-bit value from memory into register rd.
+
         // Switch the stack pointer
         "sw sp, (a0)\n" // store the value of the stack pointer register sp into
                         // the memory location pointed to by register a0
@@ -219,6 +223,13 @@ create_process(uint32_t pc) {
         PANIC("no free process slots");
     }
 
+    // Preload the kernel stack so that:
+    // 1. Enable first switch_context: the very first time of switch_context to
+    // this process can initialize registers
+    // 2. Clean up stack: clean the stack of used process for new use
+    // 3. Match switch_context expectation: switch_context assumes the stack
+    // contains valid frame with ra, s0-s11 at proc->sp. This initialization
+    // creates this exact layout
     uint32_t *sp = (uint32_t *)&proc->stack[sizeof(proc->stack)];
     *--sp = 0;            // s11
     *--sp = 0;            // s10
@@ -232,11 +243,17 @@ create_process(uint32_t pc) {
     *--sp = 0;            // s2
     *--sp = 0;            // s1
     *--sp = 0;            // s0
-    *--sp = (uint32_t)pc; // ra // ???
+    *--sp = (uint32_t)pc; // ra Set ra to pc so during the switch_context it
+                          // will load this frame to ra register and return, a
+                          // trick to invoke function without calling it in C
 
     proc->pid = i + 1;
     proc->state = PROC_RUNNABLE;
-    proc->sp = (uint32_t)sp; // ???
+    proc->sp = (uint32_t)sp; // This cast takes the address value held by sp and
+                             // the statement assigns that value to proc->sp.
+                             // Why would just use *sp? bacause *sp gets the
+                             // data sp points to, but not the address sp held.
+                             // uint32 is the word size of this platform
     return proc;
 }
 
@@ -253,7 +270,7 @@ struct process *idle_proc;
 void
 yield(void) {
     struct process *next = idle_proc;
-    for (int i = 1; i < PROCS_MAX; i++) {
+    for (int i = 0; i < PROCS_MAX; i++) {
         struct process *proc = &procs[(current_proc->pid + i) % PROCS_MAX];
         if (proc->state == PROC_RUNNABLE && proc->pid > 0) {
             next = proc;
@@ -311,8 +328,6 @@ kernel_main(void) {
     proc_b = create_process((uint32_t)proc_b_entry);
 
     yield();
-
-    // PANIC: kernel.c:133: unexpected trap scause=00000005, stval=00000000, sepc=8020028a
 
     PANIC("unreachable here!");
 
