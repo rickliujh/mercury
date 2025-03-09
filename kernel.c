@@ -44,7 +44,10 @@ kernel_entry(void) {
         // Supervisor mode (S-mode). It’s a scratch register meant to hold a
         // temporary value that the supervisor (kernel) can use during exception
         // handling.
-        "csrw sscratch, sp\n"
+
+        // Retrieve the kernel stack of the running process from sscratch
+        "csrrw sp, sscratch, sp\n"
+
         "addi sp, sp, -4 * 31\n"
         "sw ra,  4 * 0(sp)\n"
         "sw gp,  4 * 1(sp)\n"
@@ -79,8 +82,14 @@ kernel_entry(void) {
 
         // RISC-V’s instruction set doesn’t provide a direct way to store a CSR
         // value (like sscratch) straight into memory (e.g., the stack).
+
+        // Retrieve the original sp and push to kernel stack
         "csrr a0, sscratch\n"
         "sw a0, 4 * 30(sp)\n"
+
+        // Reset sscratch back to original sp in sscratch
+        "addi a0, sp, 4 * 31\n"
+        "csrw sscratch, a0\n"
 
         // By moving sp to a0, the code is effectively passing a pointer to the
         // trap frame as an argument to handle_trap.
@@ -281,6 +290,11 @@ yield(void) {
     if (next == current_proc)
         return;
 
+    __asm__ __volatile__("csrw sscratch, %[sscratch]\n"
+                         :
+                         : [sscratch] "r"((uint32_t
+                         )&next->stack[sizeof(next->stack)]));
+
     struct process *prev = current_proc;
     current_proc = next;
     switch_context(&prev->sp, &next->sp);
@@ -294,8 +308,8 @@ proc_a_entry(void) {
     printf("strating process A\n");
     while (1) {
         putchar('A');
-        yield();
         delay();
+        yield();
     }
 }
 
@@ -304,8 +318,8 @@ proc_b_entry(void) {
     printf("strating process B\n");
     while (1) {
         putchar('B');
-        yield();
         delay();
+        yield();
     }
 }
 
