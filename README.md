@@ -1,6 +1,10 @@
 # mercury
 Mercury is a simple OS kernel written in C from scratch
 
+# Page Table Design
+
+![page table](./assets/page_table.png)
+
 # MISC
 
 ```
