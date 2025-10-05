@@ -13,7 +13,7 @@ ENTRY(boot)
 
 SECTIONS {
     . = 0x80200000;
-
+    __kernel_base = .;
     /* 
      * .text contains the executable instructions of the program.
      * It holds the machine code that the CPU will execute.

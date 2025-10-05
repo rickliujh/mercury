@@ -162,6 +162,29 @@ alloc_pages(uint32_t n) {
     return paddr;
 }
 
+void
+map_page(uint32_t *table1, uint32_t vaddr, uint32_t paddr, uint32_t flags) {
+    if (!is_aligned(vaddr, PAGE_SIZE)) {
+        PANIC("ualigned vaddr %x", vaddr);
+    }
+
+    if (!is_aligned(paddr, PAGE_SIZE)) {
+        PANIC("ualigned paddr %x", paddr);
+    }
+    // 0x3ff is the binary equivalent of 1111111111 (all 1 for last 10 bits)
+    uint32_t vpn1 = (vaddr >> 22) & 0x3ff;
+    if ((table1[vpn1] & PAGE_V) == 0) {
+        // Create the 2nd level page table if it doesn't exist.
+        uint32_t pt_paddr = alloc_pages(1);
+        table1[vpn1] = ((pt_paddr / PAGE_SIZE) << 10) | PAGE_V;
+    }
+
+    // Set the 2nd level page table entry to map the physical page.
+    uint32_t vpn0 = (vaddr >> 12) & 0x3ff;
+    uint32_t *table0 = (uint32_t *)((table1[vpn1] >> 10) * PAGE_SIZE);
+    table0[vpn0] = ((paddr / PAGE_SIZE) << 10) | flags | PAGE_V;
+}
+
 __attribute__((naked)) void
 switch_context(uint32_t *prev_sp, uint32_t *next_sp) {
     __asm__ __volatile__(
@@ -215,6 +238,7 @@ switch_context(uint32_t *prev_sp, uint32_t *next_sp) {
 }
 
 struct process procs[PROCS_MAX]; // All process control structures
+extern char __kernel_base[];
 
 struct process *
 create_process(uint32_t pc) {
@@ -256,6 +280,13 @@ create_process(uint32_t pc) {
                           // will load this frame to ra register and return, a
                           // trick to invoke function without calling it in C
 
+    // Map kernel pages
+    uint32_t *page_table = (uint32_t *)alloc_pages(1);
+    for (paddr_t paddr = (paddr_t)__kernel_base;
+         paddr < (paddr_t)__free_ram_end; paddr += PAGE_SIZE) {
+        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+    }
+
     proc->pid = i + 1;
     proc->state = PROC_RUNNABLE;
     proc->sp = (uint32_t)sp; // This cast takes the address value held by sp and
@@ -263,6 +294,7 @@ create_process(uint32_t pc) {
                              // Why would just use *sp? bacause *sp gets the
                              // data sp points to, but not the address sp held.
                              // uint32 is the word size of this platform
+    proc->page_table = page_table;
     return proc;
 }
 
@@ -290,13 +322,19 @@ yield(void) {
     if (next == current_proc)
         return;
 
-    __asm__ __volatile__("csrw sscratch, %[sscratch]\n"
-                         :
-                         : [sscratch] "r"((uint32_t
-                         )&next->stack[sizeof(next->stack)]));
-
     struct process *prev = current_proc;
     current_proc = next;
+
+    __asm__ __volatile__(
+        "sfence.vma\n"
+        "csrw satp, %[satp]\n"
+        "sfence.vma\n"
+        "csrw sscratch, %[sscratch]\n"
+        :
+        : [satp] "r"(SATP_SV32 | ((uint32_t)next->page_table / PAGE_SIZE)),
+          [sscratch] "r"((uint32_t)&next->stack[sizeof(next->stack)])
+    );
+
     switch_context(&prev->sp, &next->sp);
 }
 
@@ -356,10 +394,12 @@ __attribute__((section(".text.boot"))) __attribute__((naked)) void
 boot(void) {
     // see:
     // https://dmalcolm.fedorapeople.org/gcc/2015-08-31/rst-experiment/how-to-use-inline-assembly-language-in-c-code.html#extended-asm-assembler-instructions-with-c-expression-operands
-    __asm__ __volatile__("mv sp, %[stack_top]\n" // set stack point
-                         "j kernel_main\n"       // jump to kernel main function
-                         :
-                         : [stack_top] "r"(__stack_top
-                         ) // pass the stack top address as %[stack_top]
+    __asm__ __volatile__(
+        "mv sp, %[stack_top]\n" // set stack point
+        "j kernel_main\n"       // jump to kernel main function
+        :
+        : [stack_top] "r"(
+            __stack_top
+        ) // pass the stack top address as %[stack_top]
     );
 }
